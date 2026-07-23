@@ -2,35 +2,42 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Install Ubuntu Desktop components & VNC tools
-RUN apt-get update && apt-get install -y \
+# 1. Set environment variables for the Ubuntu GNOME desktop session
+ENV XDG_CURRENT_DESKTOP=ubuntu:GNOME
+ENV GNOME_SHELL_SESSION_MODE=ubuntu
+ENV XDG_DATA_DIRS=/usr/share/ubuntu:/usr/local/share/:/usr/share/
+ENV XDG_SESSION_TYPE=x11
+
+# 2. Install Ubuntu Desktop Minimal, GNOME Session, TigerVNC, and noVNC
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ubuntu-desktop-minimal \
-    gnome-session \
     gnome-terminal \
+    dbus-x11 \
+    x11-xserver-utils \
     tigervnc-standalone-server \
     novnc \
     websockify \
-    dbus-x11 \
-    x11-xserver-utils \
     sudo \
     curl \
     wget \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Set environment variables for Ubuntu GNOME UI
-ENV XDG_CURRENT_DESKTOP=ubuntu:GNOME
-ENV GNOME_SHELL_SESSION_MODE=ubuntu
-ENV XDG_DATA_DIRS=/usr/share/ubuntu:/usr/local/share/:/usr/share/
+# 3. Create the .vnc/xstartup script to launch GNOME via D-Bus
+RUN mkdir -p /root/.vnc && \
+    echo '#!/bin/bash\n\
+unset SESSION_MANAGER\n\
+unset DBUS_SESSION_BUS_ADDRESS\n\
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME\n\
+export GNOME_SHELL_SESSION_MODE=ubuntu\n\
+export XDG_DATA_DIRS=/usr/share/ubuntu:/usr/local/share/:/usr/share/\n\
+export XDG_SESSION_TYPE=x11\n\
+exec dbus-run-session -- gnome-session --session=ubuntu' > /root/.vnc/xstartup && \
+    chmod +x /root/.vnc/xstartup
 
+# 4. Expose VNC port (5901) and noVNC Web UI port (6080)
 EXPOSE 5901
 EXPOSE 6080
 
-# 3. Startup script with D-Bus wrapper for GNOME
-CMD bash -c "\
-  mkdir -p ~/.vnc && \
-  echo '#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_CURRENT_DESKTOP=ubuntu:GNOME\nexport GNOME_SHELL_SESSION_MODE=ubuntu\nexport XDG_DATA_DIRS=/usr/share/ubuntu:/usr/local/share/:/usr/share/\nexec dbus-run-session gnome-session' > ~/.vnc/xstartup && \
-  chmod +x ~/.vnc/xstartup && \
-  vncserver -localhost no -SecurityTypes None -geometry 1280x720 --I-KNOW-THIS-IS-INSECURE :1 && \
-  websockify -D --web=/usr/share/novnc/ 6080 localhost:5901 && \
-  tail -f /dev/null"
+# 5. Start TigerVNC server and the websockify proxy on boot
+CMD ["bash", "-c", "vncserver -localhost no -SecurityTypes None -geometry 1280x720 --I-KNOW-THIS-IS-INSECURE :1 && websockify -D --web=/usr/share/novnc/ 6080 localhost:5901 && tail -f /dev/null"]
